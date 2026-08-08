@@ -41,5 +41,13 @@ services:
     environment:
       GATEWAY_SECRET: z2p-2026-secret
 
+  frontend:
+    image: nginx:alpine
+    ports: ["8081:80"]
+    volumes:
+      - ./frontend:/usr/share/nginx/html:ro
+    depends_on:
+      - api
+
 volumes:
   pgdata:
