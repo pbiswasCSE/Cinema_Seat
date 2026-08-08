@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CinemaSeat</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+  :root {
+    --bg: #0b0e14;
+    --panel: #141926;
+    --panel-2: #1b2233;
+    --line: #2a3348;
+    --text: #e9e7e2;
+    --text-dim: #9aa3b8;
+    --amber: #e8a33d;
+    --amber-dim: #6b4f22;
+    --taken: #2a2f3a;
+    --danger: #c7554b;
+    --ok: #6fae8c;
+  }
+
+  * { box-sizing: border-box; }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after { animation-duration: 0.001ms !important; transition-duration: 0.001ms !important; }
+  }
+
+  html, body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font-family: 'Inter', system-ui, sans-serif;
+    min-height: 100vh;
+  }
+
+  .mono { font-family: 'JetBrains Mono', ui-monospace, monospace; }
+
+  header.marquee {
+    padding: 28px 24px 20px;
+    text-align: center;
+    border-bottom: 1px solid var(--line);
+    background: linear-gradient(180deg, #10141f, var(--bg));
+  }
+
+  header.marquee h1 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: clamp(32px, 6vw, 52px);
+    letter-spacing: 0.08em;
+    margin: 0;
+    color: var(--amber);
+    text-shadow: 0 0 24px rgba(232, 163, 61, 0.35);
+  }
+
+  header.marquee p {
+    margin: 6px 0 0;
+    color: var(--text-dim);
+    font-size: 14px;
+    letter-spacing: 0.02em;
+  }
+
+  nav.steps {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+    margin: 20px auto 0;
+    max-width: 640px;
+    padding: 0 16px;
+  }
+
+  nav.steps button {
+    flex: 1;
+    background: var(--panel);
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 10px 6px;
+    cursor: default;
+    position: relative;
+  }
+
+  nav.steps button.active {
+    color: var(--amber);
+    border-color: var(--amber-dim);
+    background: var(--panel-2);
+  }
+
+  nav.steps button.done { color: var(--ok); }
+
+  main {
+    max-width: 720px;
+    margin: 0 auto;
+    padding: 28px 20px 60px;
+  }
+
+  .view { display: none; }
+  .view.active { display: block; }
+
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    padding: 20px;
+    margin-bottom: 14px;
+  }
+
+  .movie-title {
+    font-size: 19px;
+    font-weight: 700;
+    margin: 0 0 4px;
+  }
+
+  .movie-meta {
+    color: var(--text-dim);
+    font-size: 13px;
+    margin-bottom: 14px;
+  }
+
+  .showtime-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  button.pick {
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 10px 14px;
+    border-radius: 6px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 13px;
+    cursor: pointer;
+    transition: border-color 120ms ease, color 120ms ease;
+  }
+
+  button.pick:hover, button.pick:focus-visible {
+    border-color: var(--amber);
+    color: var(--amber);
+  }
+
+  button.primary {
+    background: var(--amber);
+    border: none;
+    color: #1a1206;
+    font-weight: 700;
+    padding: 13px 20px;
+    border-radius: 6px;
+    font-size: 15px;
+    cursor: pointer;
+    width: 100%;
+    transition: filter 120ms ease;
+  }
+
+  button.primary:hover, button.primary:focus-visible { filter: brightness(1.1); }
+  button.primary:disabled { background: var(--taken); color: var(--text-dim); cursor: not-allowed; }
+
+  button.ghost {
+    background: transparent;
+    border: 1px solid var(--line);
+    color: var(--text-dim);
+    padding: 10px 16px;
+    border-radius: 6px;
+    font-size: 13px;
+    cursor: pointer;
+    margin-top: 10px;
+    width: 100%;
+  }
+  button.ghost:hover { color: var(--text); border-color: var(--text-dim); }
+
+  input[type="text"] {
+    width: 100%;
+    background: var(--panel-2);
+    border: 1px solid var(--line);
+    color: var(--text);
+    padding: 11px 12px;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: 'Inter', sans-serif;
+    margin-bottom: 12px;
+  }
+  input[type="text"]:focus-visible { outline: 2px solid var(--amber); outline-offset: 1px; }
+
+  label.field-label {
+    display: block;
+    font-size: 12px;
+    color: var(--text-dim);
+    margin-bottom: 6px;
+    letter-spacing: 0.02em;
+  }
+
+  /* --- Seat map: the signature element --- */
+  .screen-wrap { text-align: center; margin-bottom: 28px; }
+  .screen-bar {
+    height: 6px;
+    background: var(--amber);
+    border-radius: 50%;
+    box-shadow: 0 0 40px 6px rgba(232, 163, 61, 0.45);
+    margin: 0 auto 8px;
+    width: 88%;
+  }
+  .screen-label {
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 11px;
+    letter-spacing: 0.35em;
+    color: var(--text-dim);
+  }
+
+  .seat-grid { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+  .seat-row { display: flex; align-items: center; gap: 6px; }
+  .row-label {
+    width: 18px;
+    font-family: 'JetBrains Mono', monospace;
+    font-size: 12px;
+    color: var(--text-dim);
+    text-align: center;
+  }
+
+  .seat {
+    width: 26px;
+    height: 26px;
+    border-radius: 5px 5px 8px 8px;
+    border: 1.5px solid var(--line);
+    background: transparent;
+    cursor: pointer;
+    padding: 0;
+  }
+  .seat.available:hover, .seat.available:focus-visible { border-color: var(--amber); background: rgba(232,163,61,0.12); }
+  .seat.booked { border-color: var(--taken); background: var(--taken); cursor: not-allowed; }
+  .seat.selected { border-color: var(--amber); background: var(--amber); }
+
+  .legend { display: flex; justify-content: center; gap: 18px; margin-top: 18px; font-size: 12px; color: var(--text-dim); }
+  .legend-item { display: flex; align-items: center; gap: 6px; }
+  .legend-swatch { width: 14px; height: 14px; border-radius: 3px 3px 5px 5px; border: 1.5px solid var(--line); }
+  .legend-swatch.available { }
+  .legend-swatch.booked { background: var(--taken); border-color: var(--taken); }
+  .legend-swatch.selected { background: var(--amber); border-color: var(--amber); }
+
+  .seat-picked-bar {
+    margin-top: 22px;
+    padding: 16px;
+    background: var(--panel-2);
+    border: 1px solid var(--amber-dim);
+    border-radius: 8px;
+  }
+
+  .price { font-family: 'JetBrains Mono', monospace; color: var(--amber); font-size: 15px; }
+
+  .status-line {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 14px;
+    border-radius: 8px;
+    font-size: 14px;
+    margin-bottom: 14px;
+  }
+  .status-line.pending { background: rgba(232,163,61,0.08); border: 1px solid var(--amber-dim); color: var(--amber); }
+  .status-line.error { background: rgba(199,85,75,0.1); border: 1px solid var(--danger); color: var(--danger); }
+  .status-line.ok { background: rgba(111,174,140,0.1); border: 1px solid var(--ok); color: var(--ok); }
+
+  .spinner {
+    width: 14px; height: 14px;
+    border: 2px solid currentColor;
+    border-top-color: transparent;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+    flex-shrink: 0;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* --- Ticket stub --- */
+  .ticket {
+    background: var(--panel);
+    border: 1px dashed var(--amber-dim);
+    border-radius: 10px;
+    padding: 26px;
+    position: relative;
+    overflow: hidden;
+  }
+  .ticket::before, .ticket::after {
+    content: "";
+    position: absolute;
+    width: 24px; height: 24px;
+    background: var(--bg);
+    border-radius: 50%;
+    top: 50%; transform: translateY(-50%);
+  }
+  .ticket::before { left: -12px; }
+  .ticket::after { right: -12px; }
+
+  .ticket h2 {
+    font-family: 'Bebas Neue', sans-serif;
+    font-size: 28px;
+    letter-spacing: 0.05em;
+    color: var(--amber);
+    margin: 0 0 4px;
+  }
+  .ticket-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px;
+    margin-top: 18px;
+    padding-top: 18px;
+    border-top: 1px dashed var(--line);
+  }
+  .ticket-field .label { font-size: 11px; color: var(--text-dim); letter-spacing: 0.06em; text-transform: uppercase; }
+  .ticket-field .value { font-family: 'JetBrains Mono', monospace; font-size: 15px; margin-top: 3px; }
+
+  .empty-note { color: var(--text-dim); font-size: 13px; text-align: center; padding: 30px 10px; }
+</style>
+</head>
+<body>
+
+<header class="marquee">
+  <h1>CinemaSeat</h1>
+  <p id="tagline">Pick a show. Hold your seat. Don't lose it to a refresh.</p>
+</header>
+
+<nav class="steps" aria-label="Booking progress">
+  <button id="tab-browse" class="active" disabled>1 · Browse</button>
+  <button id="tab-seats" disabled>2 · Seats</button>
+  <button id="tab-pay" disabled>3 · Payment</button>
+  <button id="tab-ticket" disabled>4 · Ticket</button>
+</nav>
+
+<main>
+
+  <!-- VIEW 1: BROWSE -->
+  <section id="view-browse" class="view active">
+    <div id="movie-list"><div class="empty-note">Loading showtimes…</div></div>
+  </section>
+
+  <!-- VIEW 2: SEATS -->
+  <section id="view-seats" class="view">
+    <div class="card" style="margin-bottom:20px;">
+      <div class="movie-title" id="seats-movie-title">—</div>
+      <div class="movie-meta" id="seats-showtime-meta">—</div>
+    </div>
+
+    <div class="screen-wrap">
+      <div class="screen-bar"></div>
+      <div class="screen-label">SCREEN</div>
+    </div>
+
+    <div id="seat-grid" class="seat-grid"></div>
+
+    <div class="legend">
+      <div class="legend-item"><span class="legend-swatch available"></span> Available</div>
+      <div class="legend-item"><span class="legend-swatch selected"></span> Your pick</div>
+      <div class="legend-item"><span class="legend-swatch booked"></span> Taken</div>
+    </div>
+
+    <div id="seat-picked-bar" class="seat-picked-bar" style="display:none;">
+      <label class="field-label" for="user-name">Name on the booking</label>
+      <input type="text" id="user-name" placeholder="e.g. Zayan" />
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+        <span id="picked-seat-code" class="mono"></span>
+        <span id="picked-price" class="price"></span>
+      </div>
+      <button class="primary" id="btn-hold">Hold this seat</button>
+      <div id="seats-error" class="status-line error" style="display:none; margin-top:12px;"></div>
+    </div>
+
+    <button class="ghost" id="btn-back-browse">← Back to showtimes</button>
+  </section>
+
+  <!-- VIEW 3: PAYMENT -->
+  <section id="view-pay" class="view">
+    <div class="card">
+      <div class="movie-title" id="pay-movie-title">—</div>
+      <div class="movie-meta" id="pay-seat-meta">—</div>
+      <div class="price" id="pay-price" style="margin-bottom:18px;"></div>
+
+      <div id="pay-status" class="status-line pending" style="display:none;"></div>
+
+      <button class="primary" id="btn-pay">Pay now</button>
+      <button class="ghost" id="btn-pay-back" style="display:none;">← Choose a different seat</button>
+    </div>
+  </section>
+
+  <!-- VIEW 4: TICKET -->
+  <section id="view-ticket" class="view">
+    <div class="ticket">
+      <div style="font-family:'JetBrains Mono',monospace; font-size:11px; letter-spacing:0.15em; color:var(--text-dim);">BOOKING CONFIRMED</div>
+      <h2 id="ticket-movie">—</h2>
+      <div class="movie-meta" id="ticket-theatre">—</div>
+
+      <div class="ticket-grid">
+        <div class="ticket-field"><div class="label">Seat</div><div class="value" id="ticket-seat">—</div></div>
+        <div class="ticket-field"><div class="label">Showtime</div><div class="value" id="ticket-time">—</div></div>
+        <div class="ticket-field"><div class="label">Booked for</div><div class="value" id="ticket-name">—</div></div>
+        <div class="ticket-field"><div class="label">Paid</div><div class="value" id="ticket-price">—</div></div>
+        <div class="ticket-field"><div class="label">Booking ID</div><div class="value" id="ticket-id" style="font-size:11px;">—</div></div>
+        <div class="ticket-field"><div class="label">Status</div><div class="value" style="color:var(--ok);">CONFIRMED</div></div>
+      </div>
+    </div>
+    <button class="ghost" id="btn-book-again">Book another seat</button>
+  </section>
+
+</main>
+
+<script>
+  const API_BASE = (localStorage && localStorage.getItem('cs_api_base')) || 'http://localhost:3000';
+
+  const state = { showtime: null, movie: null, seat: null, bookingId: null, userName: '' };
+
+  const $ = (id) => document.getElementById(id);
+  const fmtMoney = (cents) => '৳' + (cents / 100).toFixed(0);
+  const fmtTime = (iso) => {
+    const d = new Date(iso);
+    return d.toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+  };
+
+  function setStep(n) {
+    ['browse','seats','pay','ticket'].forEach((name, i) => {
+      $('view-' + name).classList.toggle('active', i === n - 1);
+      const tab = $('tab-' + name);
+      tab.classList.toggle('active', i === n - 1);
+      tab.classList.toggle('done', i < n - 1);
+    });
+  }
+
+  // ---------- VIEW 1: BROWSE ----------
+  async function loadMovies() {
+    const el = $('movie-list');
+    try {
+      const res = await fetch(`${API_BASE}/movies`);
+      if (!res.ok) throw new Error('bad status');
+      const movies = await res.json();
+      if (!movies.length) {
+        el.innerHTML = '<div class="empty-note">Nothing playing right now. Check back soon.</div>';
+        return;
+      }
+      el.innerHTML = '';
+      movies.forEach((m) => {
+        const card = document.createElement('div');
+        card.className = 'card';
+        card.innerHTML = `
+          <div class="movie-title">${m.title}</div>
+          <div class="movie-meta">${m.duration_minutes} min</div>
+          <div class="showtime-row"></div>
+        `;
+        const row = card.querySelector('.showtime-row');
+        m.showtimes.forEach((s) => {
+          const btn = document.createElement('button');
+          btn.className = 'pick';
+          btn.textContent = `${s.theatre_name} · ${fmtTime(s.starts_at)}`;
+          btn.addEventListener('click', () => openShowtime(m, s));
+          row.appendChild(btn);
+        });
+        el.appendChild(card);
+      });
+    } catch (err) {
+      el.innerHTML = `<div class="status-line error">Can't reach the booking service. Is the backend running at ${API_BASE}?</div>`;
+    }
+  }
+
+  async function openShowtime(movie, showtime) {
+    state.movie = movie;
+    state.showtime = showtime;
+    state.seat = null;
+    $('seats-movie-title').textContent = movie.title;
+    $('seats-showtime-meta').textContent = `${showtime.theatre_name} · ${fmtTime(showtime.starts_at)} · ${fmtMoney(showtime.price_cents)}`;
+    $('seat-picked-bar').style.display = 'none';
+    $('seats-error').style.display = 'none';
+    setStep(2);
+    await loadSeatMap();
+  }
+
+  // ---------- VIEW 2: SEATS ----------
+  async function loadSeatMap() {
+    const grid = $('seat-grid');
+    grid.innerHTML = '<div class="empty-note">Loading seat map…</div>';
+    try {
+      const res = await fetch(`${API_BASE}/showtimes/${state.showtime.showtime_id}/seats`);
+      if (!res.ok) throw new Error('bad status');
+      const data = await res.json();
+      renderSeatGrid(data.seats);
+    } catch (err) {
+      grid.innerHTML = '<div class="status-line error">Couldn\'t load the seat map. Try again.</div>';
+    }
+  }
+
+  function renderSeatGrid(seats) {
+    const grid = $('seat-grid');
+    grid.innerHTML = '';
+    const rows = {};
+    seats.forEach((s) => { (rows[s.row_label] ||= []).push(s); });
+
+    Object.keys(rows).sort().forEach((rowLabel) => {
+      const rowEl = document.createElement('div');
+      rowEl.className = 'seat-row';
+      const label = document.createElement('div');
+      label.className = 'row-label';
+      label.textContent = rowLabel;
+      rowEl.appendChild(label);
+
+      rows[rowLabel].sort((a, b) => a.seat_number - b.seat_number).forEach((seat) => {
+        const btn = document.createElement('button');
+        const isBooked = seat.status !== 'AVAILABLE';
+        btn.className = 'seat ' + (isBooked ? 'booked' : 'available');
+        btn.setAttribute('aria-label', `Seat ${rowLabel}${seat.seat_number}, ${isBooked ? 'taken' : 'available'}`);
+        btn.disabled = isBooked;
+        btn.addEventListener('click', () => selectSeat(seat, rowLabel, btn));
+        rowEl.appendChild(btn);
+      });
+      grid.appendChild(rowEl);
+    });
+  }
+
+  function selectSeat(seat, rowLabel, btnEl) {
+    document.querySelectorAll('.seat.selected').forEach((b) => b.classList.remove('selected'));
+    btnEl.classList.add('selected');
+    state.seat = { ...seat, code: `${rowLabel}${seat.seat_number}` };
+    $('picked-seat-code').textContent = `Seat ${state.seat.code}`;
+    $('picked-price').textContent = fmtMoney(state.showtime.price_cents);
+    $('seat-picked-bar').style.display = 'block';
+    $('seats-error').style.display = 'none';
+  }
+
+  $('btn-hold').addEventListener('click', async () => {
+    const name = $('user-name').value.trim();
+    if (!name) { showSeatsError('Add a name so we know whose seat this is.'); return; }
+    if (!state.seat) return;
+
+    $('btn-hold').disabled = true;
+    $('btn-hold').textContent = 'Holding…';
+    try {
+      const res = await fetch(`${API_BASE}/bookings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ show_seat_id: state.seat.show_seat_id, user_ref: name }),
+      });
+      const data = await res.json();
+      if (res.status === 409) {
+        showSeatsError('Someone got there first. Pick another seat.');
+        await loadSeatMap();
+        $('seat-picked-bar').style.display = 'none';
+        return;
+      }
+      if (!res.ok) throw new Error(data.error || 'hold failed');
+
+      state.bookingId = data.id;
+      state.userName = name;
+      openPaymentView();
+    } catch (err) {
+      showSeatsError('Could not hold that seat. Try again.');
+    } finally {
+      $('btn-hold').disabled = false;
+      $('btn-hold').textContent = 'Hold this seat';
+    }
+  });
+
+  function showSeatsError(msg) {
+    const el = $('seats-error');
+    el.textContent = msg;
+    el.style.display = 'flex';
+  }
+
+  $('btn-back-browse').addEventListener('click', () => setStep(1));
+
+  // ---------- VIEW 3: PAYMENT ----------
+  function openPaymentView() {
+    $('pay-movie-title').textContent = state.movie.title;
+    $('pay-seat-meta').textContent = `Seat ${state.seat.code} · ${state.showtime.theatre_name} · ${fmtTime(state.showtime.starts_at)}`;
+    $('pay-price').textContent = fmtMoney(state.showtime.price_cents);
+    $('pay-status').style.display = 'none';
+    $('btn-pay').style.display = 'block';
+    $('btn-pay').disabled = false;
+    $('btn-pay').textContent = 'Pay now';
+    $('btn-pay-back').style.display = 'none';
+    setStep(3);
+  }
+
+  $('btn-pay').addEventListener('click', async () => {
+    $('btn-pay').disabled = true;
+    $('btn-pay').textContent = 'Sending payment…';
+    setPayStatus('pending', 'Sending your payment to the gateway…');
+
+    try {
+      const res = await fetch(`${API_BASE}/bookings/${state.bookingId}/pay`, { method: 'POST' });
+      if (!res.ok) {
+        setPayStatus('error', "Payment couldn't start. Your seat is still held — try again.");
+        $('btn-pay').disabled = false;
+        $('btn-pay').textContent = 'Try again';
+        return;
+      }
+      setPayStatus('pending', 'Payment sent. Waiting for confirmation — this can take a few seconds…');
+      pollBookingStatus();
+    } catch (err) {
+      setPayStatus('error', "Couldn't reach the payment service. Try again.");
+      $('btn-pay').disabled = false;
+      $('btn-pay').textContent = 'Try again';
+    }
+  });
+
+  function setPayStatus(kind, msg) {
+    const el = $('pay-status');
+    el.className = 'status-line ' + kind;
+    el.style.display = 'flex';
+    el.innerHTML = kind === 'pending' ? `<span class="spinner"></span><span>${msg}</span>` : `<span>${msg}</span>`;
+  }
+
+  async function pollBookingStatus() {
+    const maxTries = 12; // ~24s at 2s interval, covers the gateway's up-to-15s callback delay
+    for (let i = 0; i < maxTries; i++) {
+      await new Promise((r) => setTimeout(r, 2000));
+      try {
+        const res = await fetch(`${API_BASE}/bookings/${state.bookingId}`);
+        const data = await res.json();
+        if (data.status === 'CONFIRMED') {
+          openTicketView(data);
+          return;
+        }
+        if (data.status === 'CANCELLED') {
+          setPayStatus('error', "Payment didn't go through. This seat's back up for grabs — choose another to try again.");
+          $('btn-pay').style.display = 'none';
+          $('btn-pay-back').style.display = 'block';
+          return;
+        }
+      } catch (err) { /* keep polling */ }
+    }
+    setPayStatus('error', 'Still waiting on the gateway. Your seat is held — check back shortly or try again.');
+    $('btn-pay').disabled = false;
+    $('btn-pay').textContent = 'Try again';
+  }
+
+  $('btn-pay-back').addEventListener('click', async () => {
+    setStep(2);
+    await loadSeatMap();
+    $('seat-picked-bar').style.display = 'none';
+  });
+
+  // ---------- VIEW 4: TICKET ----------
+  function openTicketView(booking) {
+    $('ticket-movie').textContent = state.movie.title;
+    $('ticket-theatre').textContent = `${state.showtime.theatre_name}`;
+    $('ticket-seat').textContent = state.seat.code;
+    $('ticket-time').textContent = fmtTime(state.showtime.starts_at);
+    $('ticket-name').textContent = state.userName;
+    $('ticket-price').textContent = fmtMoney(state.showtime.price_cents);
+    $('ticket-id').textContent = booking.id;
+    setStep(4);
+  }
+
+  $('btn-book-again').addEventListener('click', () => {
+    state.showtime = null; state.movie = null; state.seat = null; state.bookingId = null; state.userName = '';
+    setStep(1);
+    loadMovies();
+  });
+
+  loadMovies();
+</script>
+
+</body>
+</html>
