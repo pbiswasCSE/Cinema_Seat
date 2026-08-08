@@ -21,7 +21,7 @@ router.post("/", async (req, res) => {
       `UPDATE show_seats
        SET status = 'HELD', hold_expires_at = now() + ($1 || ' seconds')::interval, held_by = $2
        WHERE id = $3 AND status = 'AVAILABLE'
-       RETURNING id`,
+       RETURNING id, hold_expires_at`,
       [config.HOLD_TTL_SECONDS, user_ref, show_seat_id]
     );
 
@@ -43,7 +43,11 @@ router.post("/", async (req, res) => {
     );
 
     await client.query("COMMIT");
-    res.status(201).json({ ...booking.rows[0], price_cents: priceRow.rows[0].price_cents });
+    res.status(201).json({
+      ...booking.rows[0],
+      price_cents: priceRow.rows[0].price_cents,
+      hold_expires_at: held.rows[0].hold_expires_at,
+    });
   } catch (err) {
     await client.query("ROLLBACK");
     console.error(err);

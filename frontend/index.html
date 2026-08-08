@@ -374,11 +374,16 @@
     <div class="card">
       <div class="movie-title" id="pay-movie-title">—</div>
       <div class="movie-meta" id="pay-seat-meta">—</div>
-      <div class="price" id="pay-price" style="margin-bottom:18px;"></div>
+      <div class="price" id="pay-price" style="margin-bottom:14px;"></div>
 
-      <div id="pay-status" class="status-line pending" style="display:none;"></div>
+      <div id="hold-timer-bar" class="status-line pending" style="display:none; justify-content:space-between;">
+        <span>Seat held — pay before it releases</span>
+        <span id="hold-timer" class="mono" style="font-weight:700;">--:--</span>
+      </div>
 
-      <button class="primary" id="btn-pay">Pay now</button>
+      <div id="pay-status" class="status-line pending" style="display:none; margin-top:12px;"></div>
+
+      <button class="primary" id="btn-pay" style="margin-top:12px;">Pay now</button>
       <button class="ghost" id="btn-pay-back" style="display:none;">← Choose a different seat</button>
     </div>
   </section>
@@ -407,7 +412,8 @@
 <script>
   const API_BASE = (localStorage && localStorage.getItem('cs_api_base')) || 'http://localhost:3000';
 
-  const state = { showtime: null, movie: null, seat: null, bookingId: null, userName: '' };
+  const state = { showtime: null, movie: null, seat: null, bookingId: null, userName: '', holdExpiresAt: null };
+  let holdTimerInterval = null;
 
   const $ = (id) => document.getElementById(id);
   const fmtMoney = (cents) => '৳' + (cents / 100).toFixed(0);
@@ -547,6 +553,7 @@
 
       state.bookingId = data.id;
       state.userName = name;
+      state.holdExpiresAt = data.hold_expires_at;
       openPaymentView();
     } catch (err) {
       showSeatsError('Could not hold that seat. Try again.');
@@ -575,9 +582,51 @@
     $('btn-pay').textContent = 'Pay now';
     $('btn-pay-back').style.display = 'none';
     setStep(3);
+    startHoldTimer();
+  }
+
+  function startHoldTimer() {
+    stopHoldTimer();
+    if (!state.holdExpiresAt) { $('hold-timer-bar').style.display = 'none'; return; }
+
+    const bar = $('hold-timer-bar');
+    const label = $('hold-timer');
+    bar.style.display = 'flex';
+
+    const tick = () => {
+      const msLeft = new Date(state.holdExpiresAt).getTime() - Date.now();
+      if (msLeft <= 0) {
+        stopHoldTimer();
+        handleHoldExpired();
+        return;
+      }
+      const totalSec = Math.floor(msLeft / 1000);
+      const mm = String(Math.floor(totalSec / 60)).padStart(2, '0');
+      const ss = String(totalSec % 60).padStart(2, '0');
+      label.textContent = `${mm}:${ss}`;
+      bar.classList.toggle('error', totalSec <= 10);
+      bar.classList.toggle('pending', totalSec > 10);
+    };
+
+    tick();
+    holdTimerInterval = setInterval(tick, 1000);
+  }
+
+  function stopHoldTimer() {
+    if (holdTimerInterval) { clearInterval(holdTimerInterval); holdTimerInterval = null; }
+  }
+
+  function handleHoldExpired() {
+    // Time's up: decline the user here rather than letting a doomed /pay call go out.
+    $('hold-timer-bar').style.display = 'none';
+    $('btn-pay').style.display = 'none';
+    $('btn-pay-back').style.display = 'block';
+    setPayStatus('error', "Your hold ran out. This seat's back up for grabs — pick another to try again.");
   }
 
   $('btn-pay').addEventListener('click', async () => {
+    stopHoldTimer();
+    $('hold-timer-bar').style.display = 'none';
     $('btn-pay').disabled = true;
     $('btn-pay').textContent = 'Sending payment…';
     setPayStatus('pending', 'Sending your payment to the gateway…');
@@ -614,10 +663,13 @@
         const res = await fetch(`${API_BASE}/bookings/${state.bookingId}`);
         const data = await res.json();
         if (data.status === 'CONFIRMED') {
+          stopHoldTimer();
           openTicketView(data);
           return;
         }
         if (data.status === 'CANCELLED') {
+          stopHoldTimer();
+          $('hold-timer-bar').style.display = 'none';
           setPayStatus('error', "Payment didn't go through. This seat's back up for grabs — choose another to try again.");
           $('btn-pay').style.display = 'none';
           $('btn-pay-back').style.display = 'block';
@@ -631,6 +683,7 @@
   }
 
   $('btn-pay-back').addEventListener('click', async () => {
+    stopHoldTimer();
     setStep(2);
     await loadSeatMap();
     $('seat-picked-bar').style.display = 'none';

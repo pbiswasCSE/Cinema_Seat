@@ -3,6 +3,34 @@ const { pool } = require("../db");
 const gateway = require("../gateway");
 const router = express.Router();
 
+// Applies a SUCCEEDED/FAILED/REFUNDED transition. Must run inside a transaction (client).
+async function applyStatusTransition(client, { paymentId, bookingId, newStatus, currentStatus }) {
+  if (currentStatus === newStatus) return; // already applied — idempotent no-op
+
+  await client.query(`UPDATE payments SET status = $1 WHERE id = $2`, [newStatus, paymentId]);
+
+  if (newStatus === "SUCCEEDED") {
+    await client.query(`UPDATE bookings SET status = 'CONFIRMED' WHERE id = $1 AND status = 'PENDING_PAYMENT'`, [
+      bookingId,
+    ]);
+    await client.query(
+      `UPDATE show_seats SET status = 'BOOKED' WHERE id = (SELECT show_seat_id FROM bookings WHERE id = $1)`,
+      [bookingId]
+    );
+  } else if (newStatus === "FAILED") {
+    await client.query(`UPDATE bookings SET status = 'CANCELLED' WHERE id = $1 AND status = 'PENDING_PAYMENT'`, [
+      bookingId,
+    ]);
+    await client.query(
+      `UPDATE show_seats SET status = 'AVAILABLE', hold_expires_at = NULL, held_by = NULL
+       WHERE id = (SELECT show_seat_id FROM bookings WHERE id = $1) AND status = 'HELD'`,
+      [bookingId]
+    );
+  } else if (newStatus === "REFUNDED") {
+    await client.query(`UPDATE bookings SET status = 'CANCELLED' WHERE id = $1`, [bookingId]);
+  }
+}
+
 // POST /bookings/:id/pay
 router.post("/bookings/:id/pay", async (req, res) => {
   const bookingId = req.params.id;
@@ -31,7 +59,7 @@ router.post("/bookings/:id/pay", async (req, res) => {
   );
   const paymentId = payRes.rows[0].id;
 
-const { status, data } = await gateway.charge({
+  const { status, data } = await gateway.charge({
     amount_cents: booking.price_cents,
     booking_id: bookingId,
     idempotencyKey: paymentId,
@@ -39,12 +67,49 @@ const { status, data } = await gateway.charge({
   });
 
   if (status !== 202 || !data.payment_id) {
-    // gateway down or rejected — payment stays PENDING, booking stays PENDING_PAYMENT
-    // health stays green regardless; caller can retry
     return res.status(502).json({ error: "gateway charge failed", detail: data });
   }
 
   await pool.query(`UPDATE payments SET gateway_payment_id = $1 WHERE id = $2`, [data.payment_id, paymentId]);
+
+  // RECONCILIATION: the callback can race ahead of this very line (e.g. X-Mock-Force: race,
+  // or under normal delay a retry-less duplicate). If the webhook already arrived and found
+  // no matching payment, it was stored "orphaned" (payment_id IS NULL). Catch it up right now.
+  try {
+    const orphan = await pool.query(
+      `SELECT event_id, status, raw_payload FROM payment_events
+       WHERE payment_id IS NULL AND raw_payload->>'payment_id' = $1
+       LIMIT 1`,
+      [data.payment_id]
+    );
+    if (orphan.rowCount > 0) {
+      const ev = orphan.rows[0];
+      const client = await pool.connect();
+      try {
+        await client.query("BEGIN");
+        await client.query(`UPDATE payment_events SET payment_id = $1 WHERE event_id = $2`, [
+          paymentId,
+          ev.event_id,
+        ]);
+        await applyStatusTransition(client, {
+          paymentId,
+          bookingId,
+          newStatus: ev.status,
+          currentStatus: "PENDING", // we just created it as PENDING above
+        });
+        await client.query("COMMIT");
+        console.log(`reconciled orphaned event ${ev.event_id} for payment ${paymentId}`);
+      } catch (err) {
+        await client.query("ROLLBACK");
+        console.error("reconciliation error", err);
+      } finally {
+        client.release();
+      }
+    }
+  } catch (err) {
+    console.error("reconciliation lookup failed", err);
+  }
+
   res.status(202).json({ payment_id: paymentId, gateway_payment_id: data.payment_id, status: "PENDING" });
 });
 
@@ -59,8 +124,6 @@ router.post("/webhooks/payment", async (req, res) => {
   try {
     await client.query("BEGIN");
 
-    // ATOMIC dedup: INSERT ... ON CONFLICT DO NOTHING. If 0 rows inserted,
-    // this event_id was already processed — even under concurrent duplicate delivery.
     const ins = await client.query(
       `INSERT INTO payment_events (event_id, status, raw_payload)
        VALUES ($1, $2, $3)
@@ -71,58 +134,31 @@ router.post("/webhooks/payment", async (req, res) => {
 
     if (ins.rowCount === 0) {
       await client.query("ROLLBACK");
-      return res.sendStatus(200); // duplicate — ack quietly, no double-processing
+      return res.sendStatus(200); // duplicate — ack quietly
     }
 
-    // find the payment; callback can race ahead of /pay finishing, so payment
-    // row might briefly not have gateway_payment_id set yet — retry-safe via gateway retries
     const payRow = await client.query(`SELECT id, booking_id, status FROM payments WHERE gateway_payment_id = $1`, [
       event.payment_id,
     ]);
 
     if (payRow.rowCount === 0) {
-      // event recorded but payment not found yet (race) — commit event as seen,
-      // return non-2xx so gateway retries and we can link it next time
+      // Race: callback arrived before /pay linked gateway_payment_id.
+      // Keep the event (payment_id stays NULL) so /pay's reconciliation step
+      // can pick it up right after it links — do NOT lose this event.
       await client.query("COMMIT");
-      return res.sendStatus(202);
+      return res.sendStatus(200);
     }
 
     const { id: paymentId, booking_id: bookingId, status: currentStatus } = payRow.rows[0];
-
     await client.query(`UPDATE payment_events SET payment_id = $1 WHERE event_id = $2`, [paymentId, event.event_id]);
-
-    // idempotent state transition: only act if not already in this terminal state
-    if (currentStatus !== event.status) {
-      await client.query(`UPDATE payments SET status = $1 WHERE id = $2`, [event.status, paymentId]);
-
-      if (event.status === "SUCCEEDED") {
-        await client.query(`UPDATE bookings SET status = 'CONFIRMED' WHERE id = $1 AND status = 'PENDING_PAYMENT'`, [
-          bookingId,
-        ]);
-        await client.query(
-          `UPDATE show_seats SET status = 'BOOKED' WHERE id = (SELECT show_seat_id FROM bookings WHERE id = $1)`,
-          [bookingId]
-        );
-      } else if (event.status === "FAILED") {
-        await client.query(`UPDATE bookings SET status = 'CANCELLED' WHERE id = $1 AND status = 'PENDING_PAYMENT'`, [
-          bookingId,
-        ]);
-        await client.query(
-          `UPDATE show_seats SET status = 'AVAILABLE', hold_expires_at = NULL, held_by = NULL
-           WHERE id = (SELECT show_seat_id FROM bookings WHERE id = $1) AND status = 'HELD'`,
-          [bookingId]
-        );
-      } else if (event.status === "REFUNDED") {
-        await client.query(`UPDATE bookings SET status = 'CANCELLED' WHERE id = $1`, [bookingId]);
-      }
-    }
+    await applyStatusTransition(client, { paymentId, bookingId, newStatus: event.status, currentStatus });
 
     await client.query("COMMIT");
     res.sendStatus(200);
   } catch (err) {
     await client.query("ROLLBACK");
     console.error("payment webhook error", err);
-    res.sendStatus(500); // genuine failure — gateway will retry (up to 8x)
+    res.sendStatus(500);
   } finally {
     client.release();
   }
